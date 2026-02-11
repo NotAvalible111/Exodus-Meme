@@ -260,10 +260,11 @@ ExodusMeme incluye una mezcla balanceada de subreddits en español e inglés:
 
 ¿Tienes problemas? ¡Estamos aquí para ayudar!
 
-- 🐛 **¿Encontraste un bug?** Abre un [Issue]()
+- 🐛 **¿Encontraste un bug?** Abre un [Issue](https://github.com/NotAvalible111/Exodus-Meme/issues)
 - 💬 **¿Necesitas ayuda?** [Únete a nuestro Discord](https://discord.gg/A8WZwsx6cZ)
 - 🛠️ **¿Error en la docs?** ¡Los pull requests son bienvenidos!
 
 ## 📜 Licencia
+
 
 MIT © [NotAvalible111](https://github.com/NotAvalible111)
