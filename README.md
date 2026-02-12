@@ -3,9 +3,10 @@
 **Motor de memes de alto rendimiento para Node.js y Discord bots.**  
 *Optimizado para Discord, diseñado para velocidad y extensibilidad.*
 
-[![npm version](https://img.shields.io/npm/v/exodusmeme.svg?style=flat-square)](https://www.npmjs.com/package/exodusmeme)
-[![License: MIT](https://img.shields.io/badge/License-MIT-orange.svg?style=flat-square)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
+[![npm version](https://img.shields.io/npm/v/@abstract_/exodusmeme?color=cb3837&style=for-the-badge&logo=npm)](https://www.npmjs.com/package/@abstract_/exodusmeme)
+[![npm downloads](https://img.shields.io/npm/dm/@abstract_/exodusmeme?color=333&style=for-the-badge)](https://www.npmjs.com/package/@abstract_/exodusmeme)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
 ---
 
@@ -309,5 +310,6 @@ await rateLimiter.throttle('multiapi');
 - 🛠️ **¿Error en la docs?** ¡Los pull requests son bienvenidos!
 
 ## 📜 Licencia
+
 
 MIT © [NotAvalible111](https://github.com/NotAvalible111)
