@@ -25,16 +25,16 @@ ExodusMeme está diseñado con una arquitectura modular y extensible que separa 
 │  - Selección de fuentes                                 │
 └────────────────────┬────────────────────────────────────┘
                      │
-        ┌────────────┼────────────┐
-        ▼            ▼            ▼
-   ┌─────────┐  ┌─────────┐  ┌─────────┐
-   │ Source  │  │ Source  │  │ Source  │
-   │ Reddit  │  │ Custom1 │  │ Custom2 │
-   └────┬────┘  └────┬────┘  └────┬────┘
-        │            │            │
-        └────────────┼────────────┘
-                     │
-                     ▼
+        ┌────────────┼────────────┬────────────┐
+        ▼            ▼            ▼            ▼
+   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐
+   │MultiAPI │  │ MemeAPI │  │ Reddit  │  │ Custom  │
+   │(Default)│  │ Source  │  │ Source  │  │ Source  │
+   └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘
+        │            │            │            │
+        └────────────┼────────────┼────────────┘
+                     │            │
+                     ▼            ▼
         ┌────────────────────────┐
         │   RateLimiter          │
         │   - Throttling         │
@@ -45,13 +45,16 @@ ExodusMeme está diseñado con una arquitectura modular y extensible que separa 
         ┌────────────────────────┐
         │   HTTP Client          │
         │   - Reintentos         │
+        │   - User-Agent rotativo│
         │   - Manejo de errores  │
         └────────┬───────────────┘
                  │
-                 ▼
-        ┌────────────────────────┐
-        │   Reddit API           │
-        └────────────────────────┘
+        ┌────────┼────────┐
+        ▼        ▼        ▼
+┌──────────┐ ┌──────────┐ ┌──────────┐
+│want.cat  │ │Reddit    │ │meme-api  │
+│   API    │ │JSON API  │ │   .com   │
+└──────────┘ └──────────┘ └──────────┘
 ```
 
 ---
@@ -134,7 +137,176 @@ fetch(options)
 
 ---
 
-### 3. RedditSource (Fuente de Reddit)
+### 3. MultiAPISource (Fuente Multi-API)
+
+**Ubicación:** `src/sources/multiapi.ts`
+
+**Responsabilidades:**
+- Agregación de múltiples fuentes de memes
+- Obtención de memes de want.cat API
+- Obtención de memes de Reddit vía meme-api.com
+- Detección de duplicados (150 IDs)
+- Caché inteligente con duración de 3 minutos
+- Mapeo de datos de diferentes APIs a formato Meme
+
+**Características principales:**
+
+```typescript
+class MultiAPISource {
+    private recentMemeIds: Set<string> = new Set()
+    private maxRecentIds = 150
+    private memeCache: Meme[] = []
+    private lastFetchTime = 0
+    private cacheDuration = 180000
+    
+    async fetch(options: FetchOptions): Promise<Meme[]>
+}
+```
+
+**APIs integradas:**
+
+1. **want.cat API**: 20 llamadas individuales para máxima variedad
+2. **Reddit API (MAAU)**: 20 memes del subreddit MAAU
+3. **Reddit API (yo_elvr)**: 20 memes del subreddit yo_elvr
+4. **Reddit API (LatinoPeopleTwitter)**: 20 memes del subreddit LatinoPeopleTwitter
+
+**Algoritmo de obtención:**
+
+```
+1. Verificar caché
+   ├─ ¿Caché válido (< 3 min) y > 10 memes? → Retornar aleatorio
+   └─ No → Continuar
+   
+2. Throttle (RateLimiter)
+   ↓
+3. Para each API:
+   ├─ want.cat: Loop 20 veces con delay 200ms
+   ├─ Reddit MAAU: Obtener 20 memes
+   ├─ Reddit yo_elvr: Obtener 20 memes
+   └─ Reddit LatinoPeopleTwitter: Obtener 20 memes
+   ↓
+4. Combinar todos los memes (~80 total)
+   ↓
+5. Filtrar duplicados (recentMemeIds)
+   ↓
+6. Actualizar caché
+   ↓
+7. Randomizar orden
+   ↓
+8. Retornar memes únicos
+```
+
+**Sistema Anti-Duplicados:**
+
+```typescript
+const recentMemeIds = new Set<string>()
+
+for (const meme of allMemes) {
+    if (!this.recentMemeIds.has(meme.id)) {
+        uniqueMemes.push(meme)
+        this.recentMemeIds.add(meme.id)
+        
+        if (this.recentMemeIds.size > 150) {
+            const firstId = this.recentMemeIds.values().next().value
+            if (firstId) this.recentMemeIds.delete(firstId)
+        }
+    }
+}
+```
+
+**Caché inteligente:**
+
+```typescript
+if (this.memeCache.length > 10 && 
+    now - this.lastFetchTime < this.cacheDuration) {
+    const cached = [...this.memeCache].sort(() => Math.random() - 0.5)
+    return cached.slice(0, options.limit || 20)
+}
+```
+
+---
+
+### 4. MemeAPISource (Fuente MemeAPI)
+
+**Ubicación:** `src/sources/memeapi.ts`
+
+**Responsabilidades:**
+- Obtención de memes desde meme-api.com
+- Múltiples endpoints de respaldo
+- Detección de duplicados (200 IDs)
+- Caché con duración de 5 minutos
+- Filtrado automático de NSFW y videos
+
+**Características principales:**
+
+```typescript
+class MemeAPISource {
+    private recentMemeIds: Set<string> = new Set()
+    private maxRecentIds = 200
+    private memeCache: Meme[] = []
+    private lastFetchTime = 0
+    private cacheDuration = 300000
+    
+    async fetch(options: FetchOptions): Promise<Meme[]>
+}
+```
+
+**Endpoints de respaldo:**
+
+```typescript
+const apis = [
+    'https://meme-api.com/gimme/50',
+    'https://meme-api.com/gimme/memes/50',
+    'https://meme-api.com/gimme/dankmemes/50'
+]
+```
+
+**Algoritmo de obtención:**
+
+```
+1. Verificar caché
+   ├─ ¿Caché válido (< 5 min) y > 10 memes? → Retornar aleatorio
+   └─ No → Continuar
+   
+2. Throttle (RateLimiter)
+   ↓
+3. Intentar cada API en orden:
+   ├─ /gimme/50 (general)
+   ├─ /gimme/memes/50 (r/memes)
+   └─ /gimme/dankmemes/50 (r/dankmemes)
+   ↓
+4. Si una API funciona → Usar esos memes
+   ↓
+5. Filtrar NSFW y videos automáticamente
+   ↓
+6. Mapear a formato Meme
+   ↓
+7. Filtrar duplicados
+   ↓
+8. Actualizar caché
+   ↓
+9. Randomizar y retornar
+```
+
+**Filtrado automático:**
+
+```typescript
+private mapToMeme(item: MemeAPIResponse, index: number): Meme | null {
+    if (!item.url || item.nsfw) {
+        return null;
+    }
+
+    const mediaType = this.getMediaType(item.url);
+    if (!mediaType || mediaType === 'video') {
+        return null;
+    }
+    
+}
+```
+
+---
+
+### 5. RedditSource (Fuente de Reddit)
 
 **Ubicación:** `src/sources/reddit.ts`
 
@@ -397,108 +569,137 @@ private isRetryable(error: any): boolean {
 
 ## 🔄 Flujo de Datos Completo
 
-### Ejemplo: Usuario solicita un meme
+### Ejemplo: Usuario solicita un meme con MultiAPI
 
 ```
 1. Bot recibe comando /meme
     ↓
 2. Llama memeForge.fetch({
-    limit: 100,
-    minUpvotes: 300,
+    limit: 10,
+    minUpvotes: 0,
     mediaType: 'image',
-    language: 'es',
-    cache: false
+    nsfw: false
 })
     ↓
 3. MemeForge → Fetcher.fetch()
     ↓
-4. Fetcher genera cacheKey = sha256('reddit-{"limit":100,...}')
+4. Fetcher genera cacheKey = hash('multiapi-{"limit":10,...}')
     ↓
-5. cache.get(cacheKey) → null (cache: false)
+5. cache.get(cacheKey) → null (primera vez)
     ↓
-6. Fetcher obtiene handler 'reddit'
+6. Fetcher obtiene handler 'multiapi' (default)
     ↓
-7. RedditSource.fetch({...})
+7. MultiAPISource.fetch({...})
     ↓
-8. Determinar subreddits → SPANISH_SUBREDDITS
+8. Verificar caché interno de MultiAPI
+    ├─ ¿Caché válido? → No (primera vez)
+    └─ Continuar
     ↓
-9. Shuffle subreddits → ['MAAU', 'yo_elvr', 'Mujico', ...]
+9. RateLimiter.throttle('multiapi')
     ↓
-10. Seleccionar 3 → ['yo_elvr', 'MAAU', 'orslokx']
+10. Obtener de want.cat:
+    a. Loop 20 veces
+    b. Para cada iteración:
+       - Llamar https://api.want.cat/api/memes
+       - Mapear respuesta a Meme
+       - Delay 200ms
+    c. ~20 memes obtenidos
     ↓
-11. Para 'yo_elvr':
-    a. RateLimiter.throttle('reddit')
-    b. sort = 'hot' (random)
-    c. url = 'https://reddit.com/r/yo_elvr/hot.json?limit=50'
-    d. http.get(url)
-    e. Mapear 50 posts a Meme[]
-    f. Agregar a allMemes
+11. Obtener de Reddit MAAU:
+    a. Llamar https://meme-api.com/gimme/MAAU/20
+    b. Mapear 20 posts a Meme[]
+    c. Filtrar NSFW y videos
+    d. ~15 memes válidos
     ↓
-12. Para 'MAAU':
-    a. RateLimiter.throttle('reddit') → wait 500ms
-    b. sort = 'top' (random)
-    c. url = 'https://reddit.com/r/MAAU/top.json?limit=50&t=day'
-    d. http.get(url)
-    e. Mapear 50 posts a Meme[]
-    f. Agregar a allMemes
+12. Obtener de Reddit yo_elvr:
+    a. Llamar https://meme-api.com/gimme/yo_elvr/20
+    b. Mapear 20 posts a Meme[]
+    c. Filtrar NSFW y videos
+    d. ~18 memes válidos
     ↓
-13. Para 'orslokx':
-    a. RateLimiter.throttle('reddit') → wait 500ms
-    b. sort = 'hot' (random)
-    c. url = 'https://reddit.com/r/orslokx/hot.json?limit=50'
-    d. http.get(url) → ERROR 404 banned
-    e. console.warn('Subreddit r/orslokx no disponible')
-    f. Continuar sin error
+13. Obtener de Reddit LatinoPeopleTwitter:
+    a. Llamar https://meme-api.com/gimme/LatinoPeopleTwitter/20
+    b. Mapear 20 posts a Meme[]
+    c. Filtrar NSFW y videos
+    d. ~16 memes válidos
     ↓
-14. allMemes = 100 memes (50 + 50)
+14. allMemes = 69 memes total (20+15+18+16)
     ↓
 15. Filtrar duplicados:
-    - recentMemeIds = Set(250 IDs)
+    - recentMemeIds = Set(50 IDs previos)
     - Filtrar memes ya en Set
-    - newMemes = 85 memes (15 eran duplicados)
-    - Agregar nuevos 85 IDs al Set
-    - Set ahora tiene 335 IDs
+    - uniqueMemes = 65 memes (4 eran duplicados)
+    - Agregar nuevos 65 IDs al Set
+    - Set ahora tiene 115 IDs
     ↓
-16. Randomizar orden
+16. Actualizar caché interno:
+    - memeCache = uniqueMemes
+    - lastFetchTime = now
     ↓
-17. Retornar a Fetcher
+17. Randomizar orden
     ↓
-18. Filter.apply(memes, {minUpvotes: 300, mediaType: 'image'})
-    - Filtrar memes con < 300 upvotes
-    - Filtrar memes que no sean 'image'
-    - Resultado: 60 memes
+18. Retornar a Fetcher
     ↓
-19. Filter.paginate(memes, 100)
-    - limit es 100, tenemos 60
-    - Retornar 60 memes
+19. Filter.apply(memes, {nsfw: false, mediaType: 'image'})
+    - Ya filtrado en MultiAPI
+    - Resultado: 65 memes
     ↓
-20. MemeForge recibe 60 memes
+20. Filter.paginate(memes, 10)
+    - Tomar primeros 10
+    - Resultado: 10 memes
     ↓
-21. format !== 'discord-embed'
+21. Guardar en caché global del Fetcher
+    ↓
+22. MemeForge recibe 10 memes
+    ↓
+23. format !== 'discord-embed'
     - Retornar memes directamente
     ↓
-22. Bot recibe 60 Meme[]
+24. Bot recibe 10 Meme[]
     ↓
-23. Bot selecciona meme aleatorio
+25. Bot selecciona meme aleatorio
     ↓
-24. Bot verifica su propio recentMemes Set
+26. Bot envía meme al usuario
     ↓
-25. Bot envía meme al usuario
+27. [Segunda llamada 2 minutos después]
+    ↓
+28. MultiAPI retorna de caché interno
+    - Caché válido (< 3 min)
+    - Randomiza orden
+    - Retorna diferentes 10 memes del caché
 ```
 
 ---
 
 ## 🎯 Decisiones de Diseño
 
-### ¿Por qué múltiples subreddits?
+### ¿Por qué MultiAPI como default?
 
-**Problema:** Un subreddit solo tiene ~100 posts calientes
-**Solución:** 3 subreddits = 150 posts únicos
+**Problema:** Una sola fuente puede fallar o tener contenido limitado
+**Solución:** Combinar múltiples fuentes = ~80 memes por fetch
 
 **Ventajas:**
-- Más variedad
+- Mayor variedad de contenido
+- Resiliencia ante fallos (si want.cat falla, hay 3 fuentes más)
 - Menos repeticiones
-- Mayor resiliencia (si uno falla, hay otros 2)
+- Contenido en español e inglés
+
+### ¿Por qué múltiples niveles de caché?
+
+**Capa 1 - Caché del Source (3-5 min):**
+- Cada source mantiene su propio caché
+- Evita llamadas repetidas a las APIs
+- Randomiza el orden en cada retorno
+
+**Capa 2 - Caché del Fetcher (1 hora):**
+- Caché global basado en opciones
+- Útil para consultas idénticas
+- Puede ser deshabilitado con `cache: false`
+
+**Ventajas:**
+- Memes frescos pero eficiente
+- Reduce carga en APIs externas
+- Balance entre variedad y performance
 
 ### ¿Por qué Set en lugar de Array?
 
@@ -509,18 +710,35 @@ private isRetryable(error: any): boolean {
 
 Con Array sería O(n) para búsquedas.
 
-### ¿Por qué dos capas de anti-duplicados?
+### ¿Por qué diferentes tamaños de Sets?
 
-1. **Capa RedditSource (500 IDs):** Evita obtener memes ya vistos de Reddit
-2. **Capa Bot (200 IDs):** Evita mostrar al usuario memes que ya vio
+Cada fuente tiene diferente tamaño de Set anti-duplicados:
 
-**Total:** 700 IDs únicos rastreados
+1. **MultiAPI (150 IDs):** Balance entre memoria y variedad
+2. **MemeAPI (200 IDs):** Más IDs porque tiene menos variedad
+3. **RedditSource (300 IDs):** Máximo porque es la fuente más grande
 
-### ¿Por qué cache: false en bots?
+**Total posible:** ~650 IDs únicos rastreados
 
-- Bots necesitan memes frescos cada vez
-- Caché es útil para APIs que sirven a múltiples usuarios
-- En bots, el anti-duplicados es más importante que caché
+### ¿Por qué filtrado en la fuente?
+
+MultiAPI y MemeAPI filtran NSFW y videos antes de retornar:
+
+**Ventajas:**
+- Reduce cantidad de datos procesados
+- Filtro más temprano = más eficiente
+- Menos lógica en Filter.apply()
+
+**Desventaja:**
+- Menos flexible para usuarios que quieren NSFW
+
+### ¿Por qué randomización en múltiples niveles?
+
+1. **Nivel Source:** Randomiza antes de retornar
+2. **Nivel Fetcher:** Puede randomizar después de filtrar
+3. **Nivel Bot:** Usuario puede randomizar al seleccionar
+
+**Resultado:** Máxima variedad, baja repetición
 
 ---
 
@@ -531,23 +749,47 @@ Con Array sería O(n) para búsquedas.
 ```
 Cache vacío: ~1MB
 Cache con 100 entradas: ~5MB
-recentMemeIds (500 IDs): ~50KB
+MultiAPI recentMemeIds (150 IDs): ~20KB
+MemeAPI recentMemeIds (200 IDs): ~25KB
+RedditSource recentMemeIds (300 IDs): ~40KB
+Total Sets: ~85KB
 ```
 
 ### Tiempo de Respuesta
 
 ```
-Caché hit: ~5ms
-Caché miss (1 subreddit): ~800ms
-Caché miss (3 subreddits): ~2500ms
+MultiAPI (caché hit): ~5ms
+MultiAPI (caché miss): ~8-12s (20 llamadas a want.cat + 3 Reddit)
+MemeAPI (caché hit): ~5ms
+MemeAPI (caché miss): ~3-5s (1-3 llamadas a meme-api)
+RedditSource (caché miss): ~2-3s (llamadas directas a Reddit)
 ```
 
 ### Rate Limiting
 
 ```
-Peticiones/segundo: 2
-Delay mínimo: 500ms
-3 subreddits: ~1.5s total
+MultiAPI:
+  - want.cat: 20 llamadas con 200ms delay = ~4s
+  - Reddit APIs: 3 llamadas paralelas = ~1s
+  - Total: ~5-8s primera vez
+
+MemeAPI:
+  - Peticiones/segundo: 0.5
+  - Delay entre llamadas: 2s
+  - Fallback automático entre 3 endpoints
+
+RedditSource:
+  - Peticiones/segundo: 2
+  - Delay mínimo: 500ms
+```
+
+### Caché
+
+```
+MultiAPI: 3 minutos (180s)
+MemeAPI: 5 minutos (300s)
+RedditSource: 2 minutos (120s)
+Fetcher global: 1 hora (3600s)
 ```
 
 ---
@@ -557,7 +799,7 @@ Delay mínimo: 500ms
 ### Agregar nueva fuente
 
 ```typescript
-import { ISourceHandler, Meme, FetchOptions } from '@abstract/exodusmeme'
+import { ISourceHandler, Meme, FetchOptions } from '@abstract_/exodusmeme'
 
 class TwitterSource implements ISourceHandler {
     name = 'twitter'
@@ -588,12 +830,16 @@ Extender `Cache.ts` para usar Redis, MongoDB, etc.
 
 ## 🚀 Optimizaciones Futuras
 
-1. **Caché distribuido** (Redis)
-2. **Paginación de Reddit** (obtener más de 100 posts)
+1. **Caché distribuido** (Redis) para compartir entre instancias
+2. **Más fuentes integradas**: 9GAG, Imgur, Giphy
 3. **Prefetching** (obtener siguiente lote en background)
-4. **ML para detección NSFW** mejorada
+4. **ML para detección NSFW** mejorada con TensorFlow
 5. **Webhooks** para notificaciones de nuevos memes
 6. **GraphQL API** como alternativa a REST
+7. **Priorización inteligente** basada en engagement
+8. **CDN integration** para servir imágenes más rápido
+9. **Streaming API** para memes en tiempo real
+10. **Analytics dashboard** para monitorear fuentes
 
 ---
 

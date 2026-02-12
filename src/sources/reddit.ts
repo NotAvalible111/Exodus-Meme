@@ -1,115 +1,166 @@
-import { ISourceHandler, Meme, FetchOptions, MediaType } from '../types';
+import { ISourceHandler, FetchOptions, Meme, MediaType } from '../types';
 import { http } from '../utils/http';
 import { rateLimiter } from '../core/RateLimiter';
 
-const SPANISH_SUBREDDITS = ['yo_elvr', 'LatinoPeopleTwitter', 'MAAU', 'orslokx', 'DylanteroYT', 'Mujico', 'PeruMemes', 'PERU', 'espanol', 'MemesMexicanos'];
-const ENGLISH_SUBREDDITS = ['memes', 'dankmemes', 'me_irl', 'wholesomememes', 'meirl', 'ProgrammerHumor', 'funny', 'meme'];
+const BEST_SUBREDDITS = [
+    'memes',
+    'dankmemes',
+    'me_irl',
+    'MAAU',
+    'wholesomememes',
+    'yo_elvr'
+];
+
+interface RedditPost {
+    id: string;
+    title: string;
+    url: string;
+    permalink: string;
+    author: string;
+    subreddit: string;
+    ups: number;
+    over_18: boolean;
+    spoiler: boolean;
+    is_self: boolean;
+    is_video: boolean;
+    created_utc: number;
+    media?: {
+        reddit_video?: {
+            fallback_url?: string;
+            width?: number;
+            height?: number;
+        };
+    };
+    preview?: {
+        images?: Array<{
+            source?: {
+                url?: string;
+                width?: number;
+                height?: number;
+            };
+        }>;
+    };
+}
+
+interface RedditResponse {
+    data?: {
+        children?: Array<{
+            data: RedditPost;
+        }>;
+    };
+}
 
 export class RedditSource implements ISourceHandler {
     name = 'reddit';
     private recentMemeIds: Set<string> = new Set();
-    private maxRecentIds = 500;
+    private maxRecentIds = 300;
+    private memeCache: Meme[] = [];
+    private lastFetchTime = 0;
+    private cacheDuration = 120000;
 
     async fetch(options: FetchOptions): Promise<Meme[]> {
-        let subreddits: string[];
+        const now = Date.now();
         
-        if (options.subreddits && options.subreddits.length > 0) {
-            subreddits = options.subreddits;
-        } else if (options.language === 'es') {
-            subreddits = SPANISH_SUBREDDITS;
-        } else if (options.language === 'en') {
-            subreddits = ENGLISH_SUBREDDITS;
-        } else {
-            subreddits = [...SPANISH_SUBREDDITS, ...ENGLISH_SUBREDDITS];
+        if (this.memeCache.length > 20 && now - this.lastFetchTime < this.cacheDuration) {
+            const cached = [...this.memeCache].sort(() => Math.random() - 0.5);
+            return cached.slice(0, options.limit || 30);
         }
 
-        const shuffledSubreddits = [...subreddits].sort(() => Math.random() - 0.5);
-        const subredditsToFetch = shuffledSubreddits.slice(0, Math.min(3, shuffledSubreddits.length));
+        const selectedSub = BEST_SUBREDDITS[Math.floor(Math.random() * BEST_SUBREDDITS.length)];
+        
+        await rateLimiter.throttle('reddit');
 
-        const allMemes: Meme[] = [];
+        const sortOptions = ['hot', 'top'];
+        const sort = sortOptions[Math.floor(Math.random() * sortOptions.length)];
+        const timeParam = sort === 'top' ? '&t=week' : '';
+        const url = `https://www.reddit.com/r/${selectedSub}/${sort}.json?limit=50${timeParam}`;
 
-        for (const subreddit of subredditsToFetch) {
-            await rateLimiter.throttle('reddit');
+        try {
+            const response = await http.get<RedditResponse>(url);
 
-            const sortOptions = ['hot', 'top'];
-            const sort = sortOptions[Math.floor(Math.random() * sortOptions.length)];
-            const timeParam = sort === 'top' ? '&t=day' : '';
-            const url = `https://www.reddit.com/r/${subreddit}/${sort}.json?limit=50${timeParam}`;
-            
-            try {
-                const data = await http.get<any>(url);
+            if (response?.data?.children && response.data.children.length > 0) {
+                const memes = response.data.children
+                    .map((child) => this.mapToMeme(child.data))
+                    .filter((meme): meme is Meme => meme !== null);
 
-                if (data?.data?.children) {
-                    const memes = data.data.children
-                        .map((child: any) => this.mapToMeme(child.data))
-                        .filter((meme: Meme | null) => meme !== null) as Meme[];
+                if (memes.length > 0) {
+                    this.memeCache = memes;
+                    this.lastFetchTime = now;
                     
-                    allMemes.push(...memes);
-                }
-            } catch (error: any) {
-                if (error.message?.includes('404') || error.message?.includes('banned')) {
-                    //console.warn(`Subreddit r/${subreddit} no disponible, saltando...`);
-                } else {
-                    //console.error(`Error obteniendo de r/${subreddit}:`, error.message);
-                }
-            }
-        }
+                    const uniqueMemes: Meme[] = [];
+                    for (const meme of memes) {
+                        if (!this.recentMemeIds.has(meme.id)) {
+                            uniqueMemes.push(meme);
+                            this.recentMemeIds.add(meme.id);
 
-        const newMemes: Meme[] = [];
-        
-        for (const meme of allMemes) {
-            if (!this.recentMemeIds.has(meme.id)) {
-                newMemes.push(meme);
-                this.recentMemeIds.add(meme.id);
-                
-                if (this.recentMemeIds.size > this.maxRecentIds) {
-                    const firstId = this.recentMemeIds.values().next().value;
-                    if (firstId) {
-                        this.recentMemeIds.delete(firstId);
+                            if (this.recentMemeIds.size > this.maxRecentIds) {
+                                const firstId = this.recentMemeIds.values().next().value;
+                                if (firstId) this.recentMemeIds.delete(firstId);
+                            }
+                        }
                     }
+
+                    return uniqueMemes.sort(() => Math.random() - 0.5);
                 }
+            }
+        } catch (error: any) {
+            console.error(`Error fetching from r/${selectedSub}:`, error.message);
+            
+            if (this.memeCache.length > 0) {
+                return [...this.memeCache].sort(() => Math.random() - 0.5).slice(0, options.limit || 30);
             }
         }
 
-        return newMemes.sort(() => Math.random() - 0.5);
+        return [];
     }
 
-    private mapToMeme(data: any): Meme | null {
-        if (!data.url || data.is_self) return null;
-
-        let finalUrl = data.url;
-        let isVideo = false;
-
-        if (data.is_video && data.media?.reddit_video?.fallback_url) {
-            finalUrl = data.media.reddit_video.fallback_url;
-            isVideo = true;
+    private mapToMeme(post: RedditPost): Meme | null {
+        if (!post.url || post.is_self) {
+            return null;
         }
 
-        const mediaType = isVideo ? 'video' : this.getMediaType(finalUrl);
-        if (!mediaType) return null;
+        let mediaUrl = post.url;
+        let isRedditVideo = false;
+
+        if (post.is_video && post.media?.reddit_video?.fallback_url) {
+            mediaUrl = post.media.reddit_video.fallback_url;
+            isRedditVideo = true;
+        }
+
+        const mediaType = isRedditVideo ? 'video' : this.getMediaType(mediaUrl);
+
+        if (!mediaType) {
+            return null;
+        }
 
         return {
-            id: data.id,
-            title: data.title,
-            url: finalUrl,
-            sourceUrl: `https://reddit.com${data.permalink}`,
-            author: data.author,
-            subreddit: data.subreddit,
-            upvotes: data.ups,
-            nsfw: data.over_18,
-            spoiler: data.spoiler,
+            id: post.id,
+            title: post.title,
+            url: mediaUrl,
+            sourceUrl: `https://reddit.com${post.permalink}`,
+            author: post.author,
+            subreddit: post.subreddit,
+            upvotes: post.ups,
+            nsfw: post.over_18,
+            spoiler: post.spoiler,
             mediaType,
-            createdAt: data.created_utc * 1000,
-            width: data.media?.reddit_video?.width || data.preview?.images?.[0]?.source?.width,
-            height: data.media?.reddit_video?.height || data.preview?.images?.[0]?.source?.height,
-            source: 'reddit',
+            createdAt: post.created_utc * 1000,
+            width: post.media?.reddit_video?.width || post.preview?.images?.[0]?.source?.width,
+            height: post.media?.reddit_video?.height || post.preview?.images?.[0]?.source?.height,
+            source: 'reddit'
         };
     }
 
     private getMediaType(url: string): MediaType | null {
-        if (url.match(/\.(jpg|jpeg|png|webp)/i)) return 'image';
-        if (url.match(/\.(gif|gifv)/i)) return 'gif';
-        if (url.includes('v.redd.it') || url.match(/\.(mp4|webm|mov)/i)) return 'video';
+        if (url.match(/\.(jpg|jpeg|png|webp)/i)) {
+            return 'image';
+        }
+        if (url.match(/\.(gif|gifv)/i)) {
+            return 'gif';
+        }
+        if (url.includes('v.redd.it') || url.match(/\.(mp4|webm|mov)/i)) {
+            return 'video';
+        }
         return null;
     }
 }

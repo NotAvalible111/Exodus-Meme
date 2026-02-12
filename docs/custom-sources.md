@@ -2,7 +2,48 @@
 
 ## Introducción
 
-ExodusMeme te permite crear tus propias fuentes de memes más allá de Reddit. Esta guía te muestra cómo implementar fuentes personalizadas desde cero.
+ExodusMeme incluye tres fuentes integradas por defecto:
+- **MultiAPI**: Combina want.cat + Reddit APIs (fuente por defecto)
+- **MemeAPI**: Usa meme-api.com con múltiples endpoints de respaldo
+- **Reddit**: Acceso directo a Reddit JSON API
+
+Esta guía te muestra cómo implementar tus propias fuentes personalizadas para expandir aún más las capacidades del motor.
+
+---
+
+## 🎯 Fuentes Integradas
+
+### Usando MultiAPI (Default)
+
+```typescript
+import { memeForge } from '@abstract_/exodusmeme';
+
+const memes = await memeForge.fetch({
+    limit: 20,
+    nsfw: false
+});
+```
+
+### Usando MemeAPI
+
+```typescript
+const memes = await memeForge.fetch({
+    source: 'memeapi',
+    limit: 15,
+    mediaType: 'image'
+});
+```
+
+### Usando Reddit Direct
+
+```typescript
+const memes = await memeForge.fetch({
+    source: 'reddit',
+    subreddits: ['dankmemes', 'memes'],
+    limit: 30,
+    minUpvotes: 500
+});
+```
 
 ---
 
@@ -49,7 +90,7 @@ interface Meme {
 ### 1. Fuente Simple de imgflip.com
 
 ```typescript
-import { ISourceHandler, Meme, FetchOptions, MediaType } from '@abstract/exodusmeme';
+import { ISourceHandler, Meme, FetchOptions, MediaType } from '@abstract_/exodusmeme';
 import axios from 'axios';
 
 export class ImgflipSource implements ISourceHandler {
@@ -86,7 +127,7 @@ export class ImgflipSource implements ISourceHandler {
 
 **Uso:**
 ```typescript
-import { memeForge } from '@abstract/exodusmeme';
+import { memeForge } from '@abstract_/exodusmeme';
 import { ImgflipSource } from './ImgflipSource';
 
 memeForge.registerSource(new ImgflipSource());
@@ -104,7 +145,7 @@ const memes = await memeForge.fetch({
 ### 2. Fuente con Sistema de Duplicados
 
 ```typescript
-import { ISourceHandler, Meme, FetchOptions } from '@abstract/exodusmeme';
+import { ISourceHandler, Meme, FetchOptions } from '@abstract_/exodusmeme';
 import axios from 'axios';
 
 export class CustomAPISource implements ISourceHandler {
@@ -171,7 +212,7 @@ export class CustomAPISource implements ISourceHandler {
 ### 3. Fuente con API Key
 
 ```typescript
-import { ISourceHandler, Meme, FetchOptions } from '@abstract/exodusmeme';
+import { ISourceHandler, Meme, FetchOptions } from '@abstract_/exodusmeme';
 import axios from 'axios';
 
 export class AuthenticatedSource implements ISourceHandler {
@@ -231,7 +272,7 @@ memeForge.registerSource(source);
 ### 4. Fuente con Web Scraping
 
 ```typescript
-import { ISourceHandler, Meme, FetchOptions } from '@abstract/exodusmeme';
+import { ISourceHandler, Meme, FetchOptions } from '@abstract_/exodusmeme';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 
@@ -281,8 +322,8 @@ export class ScraperSource implements ISourceHandler {
 ### 5. Fuente con Control de Tasa
 
 ```typescript
-import { ISourceHandler, Meme, FetchOptions } from '@abstract/exodusmeme';
-import { RateLimiter } from '@abstract/exodusmeme';
+import { ISourceHandler, Meme, FetchOptions } from '@abstract_/exodusmeme';
+import { RateLimiter } from '@abstract_/exodusmeme';
 import axios from 'axios';
 
 export class RateLimitedSource implements ISourceHandler {
@@ -324,7 +365,7 @@ export class RateLimitedSource implements ISourceHandler {
 ### 6. Fuente Agregadora
 
 ```typescript
-import { ISourceHandler, Meme, FetchOptions } from '@abstract/exodusmeme';
+import { ISourceHandler, Meme, FetchOptions } from '@abstract_/exodusmeme';
 import axios from 'axios';
 
 export class AggregatorSource implements ISourceHandler {
@@ -367,6 +408,141 @@ export class AggregatorSource implements ISourceHandler {
     }
 }
 ```
+
+---
+
+## 🌟 Ejemplo Inspirado en MultiAPI
+
+### 7. Fuente Agregadora Avanzada
+
+Inspirado en cómo MultiAPI combina múltiples fuentes:
+
+```typescript
+import { ISourceHandler, Meme, FetchOptions } from '@abstract_/exodusmeme';
+import { rateLimiter } from '@abstract_/exodusmeme';
+import axios from 'axios';
+
+export class AdvancedMultiSource implements ISourceHandler {
+    name = 'advanced-multi';
+    private recentMemeIds: Set<string> = new Set();
+    private maxRecentIds = 200;
+    private memeCache: Meme[] = [];
+    private lastFetchTime = 0;
+    private cacheDuration = 300000;
+
+    async fetch(options: FetchOptions): Promise<Meme[]> {
+        const now = Date.now();
+        
+        if (this.memeCache.length > 10 && 
+            now - this.lastFetchTime < this.cacheDuration) {
+            const cached = [...this.memeCache].sort(() => Math.random() - 0.5);
+            return cached.slice(0, options.limit || 20);
+        }
+
+        await rateLimiter.throttle(this.name);
+
+        const sources = [
+            { 
+                fetch: () => this.fetchFromAPI1(),
+                name: 'api1'
+            },
+            { 
+                fetch: () => this.fetchFromAPI2(),
+                name: 'api2'
+            },
+            { 
+                fetch: () => this.fetchFromAPI3(),
+                name: 'api3'
+            }
+        ];
+
+        const allMemes: Meme[] = [];
+
+        for (const source of sources) {
+            try {
+                const memes = await source.fetch();
+                allMemes.push(...memes);
+            } catch (error) {
+                console.error(`Error fetching from ${source.name}:`, error);
+                continue;
+            }
+        }
+
+        if (allMemes.length > 0) {
+            this.memeCache = allMemes;
+            this.lastFetchTime = now;
+            
+            const uniqueMemes: Meme[] = [];
+            for (const meme of allMemes) {
+                if (!this.recentMemeIds.has(meme.id)) {
+                    uniqueMemes.push(meme);
+                    this.recentMemeIds.add(meme.id);
+
+                    if (this.recentMemeIds.size > this.maxRecentIds) {
+                        const firstId = this.recentMemeIds.values().next().value;
+                        if (firstId) this.recentMemeIds.delete(firstId);
+                    }
+                }
+            }
+
+            return uniqueMemes.sort(() => Math.random() - 0.5);
+        }
+
+        if (this.memeCache.length > 0) {
+            return [...this.memeCache]
+                .sort(() => Math.random() - 0.5)
+                .slice(0, options.limit || 20);
+        }
+
+        return [];
+    }
+
+    private async fetchFromAPI1(): Promise<Meme[]> {
+        const response = await axios.get('https://api1.com/memes');
+        return response.data.map(this.mapToMeme);
+    }
+
+    private async fetchFromAPI2(): Promise<Meme[]> {
+        const response = await axios.get('https://api2.com/memes');
+        return response.data.map(this.mapToMeme);
+    }
+
+    private async fetchFromAPI3(): Promise<Meme[]> {
+        const response = await axios.get('https://api3.com/memes');
+        return response.data.map(this.mapToMeme);
+    }
+
+    private mapToMeme(data: any): Meme {
+        return {
+            id: data.id || `meme_${Date.now()}_${Math.random()}`,
+            title: data.title || 'Meme',
+            url: data.url,
+            sourceUrl: data.link || data.url,
+            author: data.author || 'unknown',
+            upvotes: data.score || 0,
+            nsfw: data.nsfw || false,
+            spoiler: false,
+            mediaType: this.detectMediaType(data.url),
+            createdAt: Date.now(),
+            source: this.name
+        };
+    }
+
+    private detectMediaType(url: string): 'image' | 'gif' | 'video' {
+        if (url.match(/\.gif$/i)) return 'gif';
+        if (url.match(/\.(mp4|webm)$/i)) return 'video';
+        return 'image';
+    }
+}
+```
+
+**Características clave:**
+- ✅ Caché interno de 5 minutos
+- ✅ Anti-duplicados con Set de 200 IDs
+- ✅ Múltiples fuentes con fallback automático
+- ✅ Randomización en cada retorno del caché
+- ✅ Manejo robusto de errores
+- ✅ Rate limiting integrado
 
 ---
 
@@ -506,14 +682,20 @@ describe('MyCustomSource', () => {
 
 - [ ] Implementa `ISourceHandler` correctamente
 - [ ] Retorna objetos `Meme` válidos
-- [ ] Maneja errores apropiadamente
+- [ ] Maneja errores apropiadamente (try-catch en cada fuente)
 - [ ] Respeta rate limits de la API
+- [ ] Implementa caché interno para reducir llamadas
 - [ ] Incluye documentación de uso
 - [ ] Valida datos de entrada
 - [ ] Normaliza URLs
 - [ ] Detecta tipo de media correctamente
-- [ ] Implementa anti-duplicados si es necesario
+- [ ] Implementa anti-duplicados con Set
+- [ ] Filtra NSFW si es apropiado
+- [ ] Randomiza resultados del caché
+- [ ] Define duración de caché apropiada
+- [ ] Implementa fallback para cuando la API falla
 - [ ] Escribe tests básicos
+- [ ] Verifica que IDs sean únicos
 
 ---
 
@@ -528,16 +710,30 @@ describe('MyCustomSource', () => {
 
 ## 💡 Ideas de Fuentes
 
+### APIs Públicas
 1. **9GAG**: Scraping de 9gag.com
 2. **Imgur**: API de Imgur
-3. **Twitter**: API de Twitter/X
-4. **TikTok**: Scraping de memes de TikTok
-5. **Instagram**: Scraping de cuentas de memes
-6. **Tenor**: API de GIFs
-7. **GIPHY**: API de GIPHY
-8. **Know Your Meme**: Base de datos de memes
-9. **Local**: Sistema de archivos local
-10. **Database**: PostgreSQL/MongoDB
+3. **Giphy**: API de GIPHY para GIFs
+4. **Tenor**: API de Tenor para GIFs
+5. **Know Your Meme**: Base de datos de memes
+6. **Meme Generator**: API de imgflip.com
+
+### Redes Sociales
+7. **Twitter/X**: API de Twitter/X para tweets de memes
+8. **TikTok**: Scraping de memes de TikTok
+9. **Instagram**: Scraping de cuentas de memes
+10. **Pinterest**: API de Pinterest para pins de memes
+
+### Fuentes Locales
+11. **Local Filesystem**: Sistema de archivos local
+12. **Database**: PostgreSQL/MongoDB con tus propios memes
+13. **S3 Bucket**: AWS S3 o compatible
+14. **Google Drive**: API de Google Drive
+
+### Agregadores
+15. **Multi-Platform**: Combinación de múltiples fuentes como MultiAPI
+16. **Reddit Enhanced**: Reddit con más subreddits y mejor filtrado
+17. **Meme API Hub**: Combina meme-api, imgflip, y otras APIs públicas
 
 ---
 

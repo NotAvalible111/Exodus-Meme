@@ -1,6 +1,6 @@
 {
-  "name": "@abstract/exodusmeme",
-  "version": "1.0.0",
+  "name": "@abstract_/exodusmeme",
+  "version": "1.2.7",
   "description": "High-performance, extensible meme engine for Discord bots and Node.js.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -31,7 +31,7 @@
     "embed",
     "bot"
   ],
-  "author": "PhoenixUchiha",
+  "author": "Abstract_",
   "license": "MIT",
   "dependencies": {
     "axios": "^1.6.7"

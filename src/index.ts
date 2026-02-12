@@ -4,7 +4,7 @@ export * from './core/Fetcher';
 export * from './core/Filter';
 export * from './core/Cache';
 export * from './core/RateLimiter';
-export * from './sources/reddit';
+export * from './sources/multiapi';
 export * from './discord/embed';
 export * from './utils/http';
 export * from './utils/hash';

@@ -57,17 +57,8 @@ interface DiscordEmbed {
 
 declare class MemeForge {
     constructor();
-    /**
-     * Register a custom meme source
-     */
     registerSource(handler: ISourceHandler): void;
-    /**
-     * Fetch memes based on options
-     */
     fetch(options?: FetchOptions): Promise<Meme[] | DiscordEmbed[]>;
-    /**
-     * Helper to fetch a single random meme
-     */
     fetchOne(options?: FetchOptions): Promise<Meme | DiscordEmbed | null>;
 }
 declare const memeForge: MemeForge;
@@ -111,12 +102,16 @@ declare class RateLimiter {
 }
 declare const rateLimiter: RateLimiter;
 
-declare class RedditSource implements ISourceHandler {
+declare class MultiAPISource implements ISourceHandler {
     name: string;
     private recentMemeIds;
     private maxRecentIds;
+    private memeCache;
+    private lastFetchTime;
+    private cacheDuration;
     fetch(options: FetchOptions): Promise<Meme[]>;
-    private mapToMeme;
+    private mapWantCatToMeme;
+    private mapRedditAPIToMeme;
     private getMediaType;
 }
 
@@ -141,15 +136,7 @@ declare class HttpClient {
 }
 declare const http: HttpClient;
 
-/**
- * Generates a simple SHA-256 hash for a given string (usually a URL or post ID)
- * This is used for basic duplicate detection in the cache.
- */
 declare function generateHash(input: string): string;
-/**
- * Compares two URLs to see if they might be the same image,
- * even if they have different subdomains or query params.
- */
 declare function isDuplicate(url1: string, url2: string): boolean;
 
 declare function isNSFW(title: string, contentUrl: string, tags?: string[]): boolean;
@@ -160,4 +147,4 @@ declare function hasNSFWContent(meme: {
     subreddit?: string;
 }): boolean;
 
-export { Cache, type CacheEntry, type DiscordEmbed, DiscordFormatter, type FetchOptions, Fetcher, Filter, HttpClient, type ISourceHandler, type Language, type MediaType, type Meme, type MemeFilter, MemeForge, type MemeSource, type OutputFormat, RateLimiter, RedditSource, cache, fetcher, generateHash, hasNSFWContent, http, isDuplicate, isNSFW, memeForge, rateLimiter };
+export { Cache, type CacheEntry, type DiscordEmbed, DiscordFormatter, type FetchOptions, Fetcher, Filter, HttpClient, type ISourceHandler, type Language, type MediaType, type Meme, type MemeFilter, MemeForge, type MemeSource, MultiAPISource, type OutputFormat, RateLimiter, cache, fetcher, generateHash, hasNSFWContent, http, isDuplicate, isNSFW, memeForge, rateLimiter };

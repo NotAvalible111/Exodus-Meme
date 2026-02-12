@@ -2,7 +2,7 @@ export class RateLimiter {
     private lastRequestTime: Map<string, number> = new Map();
     private minInterval: number;
 
-    constructor(requestsPerSecond = 2) {
+    constructor(requestsPerSecond = 0.5) {
         this.minInterval = 1000 / requestsPerSecond;
     }
 
